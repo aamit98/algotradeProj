@@ -119,7 +119,7 @@ if run:
     # Efficient frontier
     st.subheader("Efficient frontier")
     df_mc['Return%']=df_mc.Return*100; df_mc['Vol%']=df_mc.Vol*100
-    fig,ax=plt.subplots(figsize=(10,5))
+    fig,ax=plt.subplots(figsize=(8,4))
     ax.scatter(df_mc['Vol%'],df_mc['Return%'],c=df_mc['Sharpe'],cmap='plasma',s=4,alpha=.4)
     ax.scatter(chosen.Vol*100, chosen.Return*100, c='red', s=200, label='Recommended')
     if df_existing is not None and compare:
@@ -129,7 +129,7 @@ if run:
         ex_r=np.dot(ex_w,ex_mu); ex_v=np.sqrt(ex_w@ex_cov@ex_w)
         ax.scatter(ex_v*100, ex_r*100, marker='D', c='orange', s=160, label='Existing')
     ax.set_xlabel('Volatility (%)'); ax.set_ylabel('Expected Return (%)'); ax.legend()
-    st.pyplot(fig)
+    st.pyplot(fig, use_container_width=False)
 
     # Allocation + metrics
     st.subheader("Allocation & Metrics")
@@ -150,6 +150,12 @@ if run:
     st.subheader("Historical growth")
     growth_new=(rets@w_chosen).add(1).cumprod()
     curves=pd.DataFrame({'Recommended':growth_new})
+    
+    # Add S&P 500 baseline
+    spy_prices = load_prices(['SPY'], str(start_date), str(end_date))
+    spy_returns = spy_prices.pct_change().dropna()
+    curves['S&P 500 (SPY)'] = spy_returns['SPY'].add(1).cumprod()
+    
     if df_existing is not None and compare:
         ex_ret=load_prices(df_existing.ticker.tolist(),str(start_date),str(end_date)).pct_change().dropna()
         curves['Existing']=(ex_ret@df_existing.weight.values).add(1).cumprod()
@@ -159,7 +165,8 @@ if run:
     • **X-axis** – calendar date.  
     • **Y-axis** – how many dollar today for every 1 dollar invested at the start (1 =no gain).  
     • **Blue line** – _Recommended_ portfolio.  
-    • **Orange line** – _Existing_ (if uploaded & compared).
+    • **Light blue line** – _S&P 500 (SPY)_ baseline for comparison.  
+    • **Green line** – _Existing_ (if uploaded & compared).
     """)
 else:
     st.write("← Configure inputs, click **Optimize**.  Upload CSV + click **Compare** to overlay your mix.")
