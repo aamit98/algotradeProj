@@ -100,6 +100,14 @@ with st.sidebar:
     cats = st.multiselect("Categories", list(CATEGORIES.keys()), default=["US Market"])
     universe = sorted({t for c in cats for t in CATEGORIES[c]})
     tickers = st.multiselect("Tickers", universe, default=universe[:5])
+    
+    # Store in session state for main area access
+    st.session_state.selected_categories = cats
+    st.session_state.selected_tickers = tickers
+    
+    if tickers:
+        if st.button("📖 Learn about selected tickers"):
+            st.session_state.show_ticker_info = True
 
     st.markdown("---")
     col1,col2 = st.columns(2)
@@ -140,8 +148,43 @@ with st.sidebar:
 
     compare = st.button("📊 Compare")
 
-run = optimize or compare
 # ── MAIN ───────────────────────────────────────────────
+
+# Display ticker information if requested
+if st.session_state.get('show_ticker_info', False):
+    st.header("📖 Ticker Information")
+    
+    # Get tickers from session state
+    tickers = st.session_state.get('selected_tickers', [])
+    
+    for ticker in tickers:
+        try:
+            info = yf.Ticker(ticker).info
+            st.subheader(f"{ticker} - {info.get('shortName', ticker)}")
+            
+            if info.get('marketCap'):
+                st.write(f"**Market Cap:** ${info.get('marketCap', 0):,.0f}")
+            if info.get('currency'):
+                st.write(f"**Currency:** {info.get('currency')}")
+            if info.get('exchange'):
+                st.write(f"**Exchange:** {info.get('exchange')}")
+            
+            if info.get('longBusinessSummary'):
+                st.write("**Business Summary:**")
+                st.write(info['longBusinessSummary'][:500] + "..." if len(info['longBusinessSummary']) > 500 else info['longBusinessSummary'])
+            
+            st.markdown("---")
+        
+        except Exception as e:
+            st.warning(f"Could not load information for {ticker}: {str(e)}")
+    
+    if st.button("❌ Close ticker information"):
+        st.session_state.show_ticker_info = False
+        st.rerun()
+    
+    st.markdown("---")
+
+run = optimize or compare
 if run:
     if len(tickers)<2:
         st.error("Select at least two tickers")
