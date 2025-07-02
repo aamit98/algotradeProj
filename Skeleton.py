@@ -7,6 +7,21 @@ from datetime import datetime
 
 st.set_page_config(page_title="💹 Portfolio Studio", layout="wide")
 
+# Custom CSS to make sidebar wider
+st.markdown("""
+<style>
+    .css-1d391kg {
+        width: 350px;
+    }
+    .css-1lcbmhc {
+        width: 350px;
+    }
+    .css-17eq0hr {
+        width: 350px;
+    }
+</style>
+""", unsafe_allow_html=True)
+
 @st.cache_data(ttl=21600)
 def load_prices(tickers, start, end):
     return yf.download(tickers, start=start, end=end, progress=False)["Close"].ffill().dropna()
@@ -29,10 +44,35 @@ CATEGORIES = {
 }
 BUCKETS = ["Very Conservative","Conservative","Balanced","Aggressive","Very Aggressive"]
 
+# Risk classification for tickers
+RISK_LEVELS = {
+    "low": ["SPY","DIA","QQQ","IWM","MDY","BND","AGG","LQD","IEF","TLT","TIP"],
+    "medium": ["XLK","XLF","XLY","XLI","XLE","XLP","XLV","XLU","XLRE","VGK","EWJ","EWZ","EEM","VWO","INDA"],
+    "high": ["AAPL","MSFT","AMZN","GOOGL","META","TSLA","NVDA","BRK-B","GLD","SLV","USO","DBO","UNG","DBB","BTC-USD","ETH-USD","SOL-USD","BNB-USD"]
+}
+
+# Maximum allocation to high-risk assets by risk profile
+RISK_LIMITS = {
+    "Very Conservative": 0.15,  # Max 15% in high-risk assets
+    "Conservative": 0.30,       # Max 30% in high-risk assets  
+    "Balanced": 0.50,          # Max 50% in high-risk assets
+    "Aggressive": 0.75,        # Max 75% in high-risk assets
+    "Very Aggressive": 1.0     # No limits
+}
+
 # ── SIDEBAR ──────────────────────────────────────────────
 with st.sidebar:
     st.header("👤 Profile")
-    bucket_select = st.selectbox("Risk appetite", BUCKETS + ["I don't know"], index=2)
+    # Create dropdown options with risk limits
+    bucket_options = [
+        "Very Conservative (≤15% high-risk)",
+        "Conservative (≤30% high-risk)", 
+        "Balanced (≤50% high-risk)",
+        "Aggressive (≤75% high-risk)",
+        "Very Aggressive (no limits)",
+        "I don't know"
+    ]
+    bucket_select = st.selectbox("Risk appetite", bucket_options, index=2)
     if bucket_select == "I don't know":
         with st.expander("Quick risk quiz"):
             a1 = st.selectbox("If portfolio drops 10 %…", ["Sell all","Sell some","Hold","Buy more"])
@@ -46,7 +86,15 @@ with st.sidebar:
             risk_level = BUCKETS[min(int(score/2),4)]
             st.info(f"Diagnosed: {risk_level}")
     else:
-        risk_level = bucket_select
+        # Map dropdown selection back to original risk level names
+        risk_mapping = {
+            "Very Conservative (≤15% high-risk)": "Very Conservative",
+            "Conservative (≤30% high-risk)": "Conservative", 
+            "Balanced (≤50% high-risk)": "Balanced",
+            "Aggressive (≤75% high-risk)": "Aggressive",
+            "Very Aggressive (no limits)": "Very Aggressive"
+        }
+        risk_level = risk_mapping.get(bucket_select, "Balanced")
 
     st.markdown("---")
     cats = st.multiselect("Categories", list(CATEGORIES.keys()), default=["US Market"])
@@ -91,9 +139,35 @@ if run:
     mu, cov = rets.mean()*252, rets.cov()*252
     m=len(tickers)
 
+    def apply_risk_constraints(weights_row, tickers, risk_limit):
+        """Apply risk constraints to a single portfolio's weights"""
+        if risk_limit >= 1.0:  # No constraints for Very Aggressive
+            return weights_row
+            
+        # Identify high-risk positions
+        high_risk_mask = np.array([t in RISK_LEVELS["high"] for t in tickers])
+        high_risk_allocation = weights_row[high_risk_mask].sum()
+        
+        if high_risk_allocation <= risk_limit:
+            return weights_row  # Already within limits
+            
+        # Scale down high-risk allocations
+        scale_factor = risk_limit / high_risk_allocation
+        weights_row[high_risk_mask] *= scale_factor
+        
+        # Redistribute excess to low/medium risk assets
+        excess = 1.0 - weights_row.sum()
+        low_med_mask = ~high_risk_mask & (weights_row > 0)
+        if low_med_mask.any():
+            weights_row[low_med_mask] += excess * weights_row[low_med_mask] / weights_row[low_med_mask].sum()
+        
+        return weights_row
+
     rng=np.random.default_rng(0)
     counts=rng.integers(min_n,max_n+1,n_port)
     w_int=np.zeros((n_port,m),int)
+    risk_limit = RISK_LIMITS.get(risk_level, 1.0)
+    
     for i,k in enumerate(counts):
         idx=rng.choice(m,k,replace=False)
         if whole:
@@ -102,7 +176,12 @@ if run:
             w_int[i,idx]=ints
         else:
             w=rng.random(k); w=w/w.sum(); w_int[i,idx]=(w*10000).astype(int)
+    
     weights=w_int/100 if whole else w_int/10000
+    
+    # Apply risk constraints to each portfolio
+    for i in range(n_port):
+        weights[i] = apply_risk_constraints(weights[i], tickers, risk_limit)
 
     port_r=weights@mu.values
     port_v=np.sqrt(np.einsum('ij,jk,ik->i',weights,cov,weights))
@@ -127,7 +206,7 @@ if run:
         ex_prices=load_prices(ex_tic,str(start_date),str(end_date)); ex_ret=ex_prices.pct_change().dropna()
         ex_mu=ex_ret.mean()*252; ex_cov=ex_ret.cov()*252
         ex_r=np.dot(ex_w,ex_mu); ex_v=np.sqrt(ex_w@ex_cov@ex_w)
-        ax.scatter(ex_v*100, ex_r*100, marker='D', c='orange', s=160, label='Existing')
+        ax.scatter(ex_v*100, ex_r*100, marker='D', c='orange', s=160, label='Uploaded')
     ax.set_xlabel('Volatility (%)'); ax.set_ylabel('Expected Return (%)'); ax.legend()
     st.pyplot(fig, use_container_width=False)
 
@@ -164,9 +243,6 @@ if run:
     **How to read the chart**  
     • **X-axis** – calendar date.  
     • **Y-axis** – how many dollar today for every 1 dollar invested at the start (1 =no gain).  
-    • **Blue line** – _Recommended_ portfolio.  
-    • **Light blue line** – _S&P 500 (SPY)_ baseline for comparison.  
-    • **Green line** – _Existing_ (if uploaded & compared).
     """)
 else:
     st.write("← Configure inputs, click **Optimize**.  Upload CSV + click **Compare** to overlay your mix.")
