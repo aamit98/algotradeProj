@@ -114,7 +114,21 @@ with st.sidebar:
     n_port = st.slider("Simulations", 5000, 300000, 40000, 5000)
 
     st.markdown("---")
+    optimize = st.button("🔧 Optimize")
+    
+    st.markdown("---")
     up_file = st.file_uploader("Upload CSV (ticker,weight%)")
+    st.caption("""
+    **CSV Format Expected:**
+    ```
+    ticker,weight
+    SPY,47.30
+    QQQ,0.67
+    IEI,23.89
+    ```
+    • Column 1: `ticker` (stock/ETF symbols)
+    • Column 2: `weight` (percentage, e.g., 47.30 for 47.30%)
+    """)
     df_existing=None
     if up_file:
         try:
@@ -124,7 +138,6 @@ with st.sidebar:
         except Exception as e:
             st.error(f"CSV error: {e}")
 
-    optimize = st.button("🔧 Optimize")
     compare = st.button("📊 Compare")
 
 run = optimize or compare
@@ -132,6 +145,10 @@ run = optimize or compare
 if run:
     if len(tickers)<2:
         st.error("Select at least two tickers")
+        st.stop()
+    
+    if compare and df_existing is None:
+        st.error("📊 Please upload a CSV file first to compare portfolios")
         st.stop()
 
     prices = load_prices(tickers, str(start_date), str(end_date))
